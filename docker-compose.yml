@@ -1,0 +1,114 @@
+version: '3'
+volumes:
+  postgres_data: {}
+  postgres_backup: {}
+  redis_data: {}
+
+services:
+
+  postgres:
+    build:
+      context: .
+      dockerfile: ./compose/production/postgres/Dockerfile
+    image: easytimepro-postgres
+    restart: unless-stopped
+    container_name: postgres
+    volumes:
+      - ./compose/production/postgres/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - postgres_data:/var/lib/postgresql/data
+      - postgres_backup:/backups
+    environment:
+      - POSTGRES_DB=easytime
+      - POSTGRES_USER=my_super_user
+      - POSTGRES_PASSWORD=mysecretpass
+      - POSTGRES_HOST=postgres
+    ports:
+      - 7496:5432
+    user: root
+    privileged: true
+  redis:
+    build:
+      context: .
+      dockerfile: ./compose/production/redis/Dockerfile
+    image: easytimepro-redis
+    restart: unless-stopped
+    container_name: redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+     - ./compose/production/redis/redis.conf:/usr/local/etc/redis/redis.conf
+     - redis_data:/data
+    user: root
+    privileged: true
+
+
+  web:
+    build:
+      context: .
+      dockerfile: ./compose/production/web/Dockerfile  
+    image: easytimepro-web
+    restart: unless-stopped
+    container_name: web
+    depends_on:
+      - redis
+    volumes:
+      - .:/app
+    environment:
+      - DJANGO_ENV=enterprise_version_test
+      - DJANGO_SETTINGS_MODULE=mysite.settings
+      - CONTAINER_DEPLOY=compose
+      - CLOUD_VERSION=false
+      - SERVICE=web
+    user: root
+    privileged: true
+
+  worker:
+    image: easytimepro-web
+    restart: unless-stopped
+    container_name: worker
+    environment:
+      - SERVICE=worker
+      - CONTAINER_DEPLOY=compose
+      - CLOUD_VERSION=false
+      - DEBUG=false
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - web
+    user: root
+    privileged: true
+      
+  beat:
+    image: easytimepro-web
+    restart: unless-stopped
+    container_name: beat
+    environment:
+      - SERVICE=beat
+      - CONTAINER_DEPLOY=compose
+      - CLOUD_VERSION=false
+      - DEBUG=false
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - web
+    user: root
+    privileged: true
+      
+  nginx:
+    build:
+      context: .
+      dockerfile: ./compose/production/nginx/Dockerfile
+    image: easytimepro-ngnix
+    restart: unless-stopped
+    container_name: nginx
+    ports:
+      - "${web_port:-80}:8080"
+    volumes:
+      - .:/app
+      - ./compose/production/nginx/conf.d:/etc/nginx/conf.d
+    depends_on:
+      - web
+    user: root
+    privileged: true
+      
